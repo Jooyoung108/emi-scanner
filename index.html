@@ -1,0 +1,1356 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0f14">
+<title>EMI 스캐너</title>
+<style>
+:root{
+  --bg:#0b0f14; --panel:#121821; --panel2:#18202b; --line:#253041; --fg:#e8edf2; --muted:#8a96a6;
+  --accent:#ffc233; --accent-ink:#1a1300; --ok:#3ddc97; --warn:#ffb020; --bad:#ff5d5d; --blue:#5aa9ff;
+  --mono: ui-monospace, "Roboto Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", "Segoe UI", Roboto, sans-serif;
+  color-scheme: dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:15px;-webkit-tap-highlight-color:transparent}
+button,select,input{font:inherit;color:inherit}
+#app{display:grid;height:100%;grid-template-rows:auto auto 1fr auto auto;
+  padding-top:env(safe-area-inset-top,0px);padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px)}
+#topbar{grid-row:1;display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--panel);border-bottom:1px solid var(--line)}
+#conn{display:flex;align-items:center;gap:8px;min-width:0;flex:1 1 auto}
+#topbar .btn{flex:none;white-space:nowrap}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--bad);flex:none}
+.dot.ok{background:var(--ok)} .dot.warn{background:var(--warn)}
+#connText{font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#live{text-align:right;line-height:1.05;flex:none}
+#liveDb{font-family:var(--mono);font-size:26px;font-weight:700;letter-spacing:-.5px}
+#liveSub{font-family:var(--mono);font-size:11px;color:var(--muted)}
+.btn{border:1px solid var(--line);background:var(--panel2);border-radius:10px;padding:9px 12px;cursor:pointer;min-height:40px}
+.btn:active{transform:translateY(1px)}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:700}
+.btn.rec{background:#3a1416;border-color:#7a2a2e}
+.btn.rec.on{background:var(--bad);color:#200;border-color:var(--bad);font-weight:700}
+.btn.sel{outline:2px solid var(--accent);outline-offset:-2px}
+.btn:disabled{opacity:.45}
+.btn:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--blue);outline-offset:1px}
+#stage{grid-row:3;position:relative;min-height:0;background:#000;overflow:hidden}
+#view{position:absolute;inset:0;width:100%;height:100%;touch-action:none;display:block}
+#hint{grid-row:2;padding:7px 12px;background:#1a1606;border-bottom:1px solid #4a3b0a;color:#ffe08a;font-size:13.5px;line-height:1.35}
+#badge{position:absolute;right:10px;bottom:10px;padding:4px 8px;border-radius:6px;background:var(--warn);color:#211600;font-size:12px;font-weight:700}
+#tabs{grid-row:4;display:flex;gap:4px;padding:6px 8px;background:var(--panel);border-top:1px solid var(--line);overflow-x:auto}
+#tabs button{flex:1;min-width:60px;border:0;background:transparent;color:var(--muted);padding:8px 4px;border-radius:8px;font-size:14px}
+#tabs button.active{background:var(--panel2);color:var(--fg);font-weight:700}
+#panels{grid-row:5;background:var(--panel);max-height:42vh;overflow:auto;padding:10px 12px calc(12px + env(safe-area-inset-bottom,0px))}
+.panel{display:none;flex-direction:column;gap:10px}
+.panel.active{display:flex}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.row > label{display:flex;align-items:center;gap:6px;font-size:14px}
+.card{border:1px solid var(--line);border-radius:12px;padding:10px;background:var(--panel2);display:flex;flex-direction:column;gap:8px}
+.card h3{margin:0;font-size:14px;color:var(--muted);font-weight:600;letter-spacing:.2px}
+.kv{font-family:var(--mono);font-size:13px;color:var(--fg)}
+.muted{color:var(--muted);font-size:13px}
+.okt{color:var(--ok)} .badt{color:var(--bad)} .warnt{color:var(--warn)}
+input[type=number],input[type=text],select{background:#0e141c;border:1px solid var(--line);border-radius:8px;padding:7px 8px;min-height:38px}
+input[type=number]{width:84px}
+input[type=range]{width:160px}
+table{border-collapse:collapse;width:100%;font-family:var(--mono);font-size:12px}
+th,td{border-bottom:1px solid var(--line);padding:4px 6px;text-align:right;white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+.tablewrap{overflow-x:auto;max-height:180px}
+@media (orientation:landscape) and (min-width:760px){
+  #app{grid-template-columns:1fr 360px;grid-template-rows:auto auto 1fr auto}
+  #topbar{grid-column:1 / 3}
+  #hint{grid-column:1;grid-row:2}
+  #stage{grid-column:1;grid-row:3 / 5}
+  #tabs{grid-column:2;grid-row:2;align-self:start;flex-wrap:wrap}
+  #panels{grid-column:2;grid-row:3 / 5;max-height:none}
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <header id="topbar">
+    <div id="conn"><span class="dot" id="connDot"></span><span id="connText">USB 연결 안 됨</span></div>
+    <button class="btn primary" id="btnConnect">USB 연결</button>
+    <div id="live"><div id="liveDb">--.-</div><div id="liveSub">dBm</div></div>
+    <button class="btn rec" id="btnScan">스캔 ●</button>
+  </header>
+
+  <div id="hint" role="status">준비 탭에서 USB 연결 → 카메라 켜기 → 모서리 지정 → 마커 색 지정 순서로 진행하세요.</div>
+  <main id="stage">
+    <canvas id="view"></canvas>
+    <video id="video" playsinline muted hidden></video>
+    <div id="badge" hidden>데모 신호</div>
+  </main>
+
+  <nav id="tabs">
+    <button data-tab="prep" class="active">준비</button>
+    <button data-tab="scan">스캔</button>
+    <button data-tab="meas">측정</button>
+    <button data-tab="exp">실험</button>
+    <button data-tab="save">저장</button>
+    <button data-tab="set">설정</button>
+  </nav>
+
+  <div id="panels">
+    <!-- 준비 -->
+    <section class="panel active" id="panel-prep">
+      <div class="card">
+        <h3>① 회로 점검</h3>
+        <div class="kv" id="chkRaw">SIG ---- mV · REF ---- mV</div>
+        <div id="chkVerdict" class="muted">USB를 연결하면 검출기 전압을 확인합니다.</div>
+      </div>
+      <div class="card">
+        <h3>② 카메라</h3>
+        <div class="row">
+          <button class="btn" id="btnCam">카메라 켜기</button>
+          <button class="btn" id="btnManual">카메라 없이 (수동 위치)</button>
+          <select id="camSelect" hidden></select>
+        </div>
+      </div>
+      <div class="card">
+        <h3>③ 매트 모서리 (1→2→3→4 순서로 탭)</h3>
+        <div class="row">
+          <button class="btn" id="btnCorners">모서리 지정 시작</button>
+          <span class="muted" id="cornerState">아직 지정 안 됨</span>
+        </div>
+      </div>
+      <div class="card">
+        <h3>④ 프로브 마커 색</h3>
+        <div class="row">
+          <button class="btn" id="btnPick">화면에서 마커 탭하기</button>
+          <span class="muted" id="markerState">아직 지정 안 됨</span>
+        </div>
+        <div class="row"><label>색 허용 범위 <input type="range" id="tolH" min="6" max="40" step="1"></label><span class="kv" id="tolHv"></span></div>
+      </div>
+      <div class="card">
+        <h3>⑤ 0점과 바닥 잡기 (코일 끄고, 프로브를 대상에서 30 cm 이상 떨어뜨린 상태)</h3>
+        <div class="row">
+          <button class="btn" id="btnZero">0점 잡기</button>
+          <button class="btn" id="btnFloor">바닥(잡음) 측정</button>
+        </div>
+        <div class="kv" id="zeroState">0점 미설정 · 바닥 미측정</div>
+      </div>
+    </section>
+
+    <!-- 스캔 -->
+    <section class="panel" id="panel-scan">
+      <div class="card">
+        <h3>기준 코일 켜기</h3>
+        <div class="row" id="coilBtns">
+          <button class="btn" data-c="0">끄기</button>
+          <button class="btn" data-c="1">C1</button>
+          <button class="btn" data-c="2">C2</button>
+          <button class="btn" data-c="3">C3</button>
+          <button class="btn" data-c="4">C4</button>
+          <button class="btn" data-c="5">C3+C4</button>
+          <button class="btn" data-c="6">전체</button>
+        </div>
+        <div class="row"><label><input type="checkbox" id="showTruth"> 코일 실제 위치 표시</label></div>
+      </div>
+      <div class="card">
+        <h3>지도</h3>
+        <div class="row">
+          <button class="btn" id="btnClear">지도 지우기</button>
+          <label>보기 <select id="viewMode"><option value="live">현재 스캔</option><option value="A">A</option><option value="B">B</option><option value="D">B − A (차이)</option></select></label>
+          <label>칸 <select id="cellSel"><option value="2">2 mm</option><option value="3">3 mm</option><option value="4">4 mm</option><option value="5">5 mm</option></select></label>
+          <label>값 <select id="aggSel"><option value="max">최댓값</option><option value="mean">평균</option></select></label>
+        </div>
+        <div class="row">
+          <label><input type="checkbox" id="autoScale"> 색 범위 자동</label>
+          <label>최소 <input type="number" id="scaleMin" step="1"></label>
+          <label>최대 <input type="number" id="scaleMax" step="1"></label>
+          <span class="muted">dBm</span>
+        </div>
+        <div class="kv" id="peakInfo">피크: -</div>
+      </div>
+    </section>
+
+    <!-- 측정 -->
+    <section class="panel" id="panel-meas">
+      <div class="card">
+        <h3>한 점 측정 (프로브를 고정한 채 2초 평균)</h3>
+        <div class="row">
+          <input type="text" id="ptLabel" placeholder="이름 (예: 감쇠 0 dB)" style="flex:1;min-width:150px">
+          <button class="btn primary" id="btnPt">2초 기록</button>
+        </div>
+        <div class="row" id="ptPresets">
+          <button class="btn" data-l="직결 (0 Ω)">직결 0 Ω</button>
+          <button class="btn" data-l="직렬 51 Ω">51 Ω</button>
+          <button class="btn" data-l="직렬 150 Ω">150 Ω</button>
+          <button class="btn" data-l="직렬 470 Ω">470 Ω</button>
+          <button class="btn" data-l="검증 100 Ω">검증 100 Ω</button>
+        </div>
+        <div class="tablewrap"><table id="ptTable"><thead><tr><th>이름</th><th>값</th><th>±dB</th><th>첫 점 대비 dB</th><th>신호 mV</th><th>시각</th></tr></thead><tbody></tbody></table></div>
+        <div class="row"><button class="btn" id="btnPtUndo">마지막 삭제</button><button class="btn" id="btnPtCsv">CSV 저장</button></div>
+      </div>
+      <div class="card">
+        <h3>검출기 교정 (위의 0·51·150·470 Ω 네 점을 기록한 뒤)</h3>
+        <div class="row">
+          <button class="btn primary" id="btnCal">기록한 감쇠 점으로 교정</button>
+          <label><input type="checkbox" id="calOn"> 교정 적용</label>
+          <label>종단 저항 <input type="number" id="rT" step="1"> Ω</label>
+        </div>
+        <div class="tablewrap"><table id="calTable"><thead><tr><th>점</th><th>ΔV mV</th><th>목표 dB</th><th>교정 후 dB</th><th>오차</th></tr></thead><tbody></tbody></table></div>
+        <div class="muted" id="calInfo">교정 전에는 다이오드 이론식으로 바꾼 "dBm(환산)"을 보여 줍니다.</div>
+      </div>
+    </section>
+
+    <!-- 실험 -->
+    <section class="panel" id="panel-exp">
+      <div class="card">
+        <h3>위치 정확도 (코일 하나만 켜고 스캔 → 피크와 실제 위치 비교)</h3>
+        <div class="kv" id="accInfo">코일 하나를 켜고 스캔하세요.</div>
+        <div class="row"><button class="btn" id="btnAccRec">이 결과 기록</button><button class="btn" id="btnAccCsv">CSV 저장</button><span class="muted" id="accCount">0건</span></div>
+      </div>
+      <div class="card">
+        <h3>블라인드 비교 시험</h3>
+        <div class="row">
+          <label><input type="radio" name="bmethod" value="map" checked> 지도 보기 (제작 방식)</label>
+          <label><input type="radio" name="bmethod" value="num"> 숫자만 보기 (기존 방식)</label>
+        </div>
+        <div class="row">
+          <button class="btn primary" id="btnBlindStart">새 시도 시작</button>
+          <button class="btn" id="btnBlindHere" disabled>여기! (프로브 위치 제출)</button>
+        </div>
+        <div class="kv" id="blindInfo">시작을 누르면 앱이 무작위로 코일 하나를 켭니다. 어느 코일인지는 끝날 때까지 숨깁니다.</div>
+        <div class="tablewrap"><table id="blindTable"><thead><tr><th>방식</th><th>시도</th><th>평균 시간 s</th><th>평균 오차 mm</th><th>10 mm 이내</th></tr></thead><tbody></tbody></table></div>
+        <div class="row"><button class="btn" id="btnBlindCsv">CSV 저장</button><button class="btn" id="btnBlindUndo">마지막 시도 삭제</button></div>
+      </div>
+    </section>
+
+    <!-- 저장 -->
+    <section class="panel" id="panel-save">
+      <div class="card">
+        <h3>대책 전후 비교</h3>
+        <div class="row">
+          <button class="btn" id="btnSaveA">현재 지도 → A (대책 전)</button>
+          <button class="btn" id="btnSaveB">현재 지도 → B (대책 후)</button>
+        </div>
+        <div class="kv" id="abStats">A, B를 모두 저장하면 차이를 계산합니다.</div>
+      </div>
+      <div class="card">
+        <h3>파일로 저장 (휴대폰의 다운로드 폴더)</h3>
+        <div class="row">
+          <button class="btn primary" id="btnPng">화면 PNG</button>
+          <button class="btn" id="btnCsv">지도 CSV</button>
+          <button class="btn" id="btnJson">세션 전체 JSON</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 설정 -->
+    <section class="panel" id="panel-set">
+      <div class="card">
+        <h3>검출기</h3>
+        <div class="row">
+          <label>종류 <select id="detSel"><option value="diode">다이오드 차동 검파 (기본)</option><option value="ad8307">AD8307 로그 검출기</option></select></label>
+        </div>
+        <div class="row" id="diodeOpts"><label>nVt <input type="number" id="nVt" step="0.1"> mV</label><span class="muted">다이오드 열전압×이상계수 (기본 26.6)</span></div>
+        <div class="row" id="adOpts"><label>기울기 <input type="number" id="adSlope" step="0.1"> mV/dB</label><label>절편 <input type="number" id="adInt" step="0.5"> dBm</label></div>
+      </div>
+      <div class="card">
+        <h3>스캔</h3>
+        <div class="row"><label>지연 보정 <input type="number" id="latency" step="10"> ms</label><span class="muted">카메라가 늦게 보이는 시간만큼 측정값을 과거에서 가져옵니다</span></div>
+        <div class="row"><label>매트 가로 <input type="number" id="matW"> mm</label><label>세로 <input type="number" id="matH"> mm</label></div>
+        <div class="row" id="coilPos"></div>
+      </div>
+      <div class="card">
+        <h3>연결 · 시험</h3>
+        <div class="row"><label>연결 방식 <select id="connMode"><option value="auto">자동</option><option value="usb">WebUSB (안드로이드)</option><option value="serial">Web Serial (PC)</option></select></label></div>
+        <div class="row"><label><input type="checkbox" id="demo"> 데모 신호 (하드웨어 없이 화면 시험)</label></div>
+        <div class="row"><button class="btn" id="btnReset">설정 초기화</button><span class="muted" id="verInfo">앱 v1.0</span></div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+   EMI 스캐너 앱 v1.0
+   - USB(WebUSB 또는 Web Serial)로 ESP32-S3의 검출기 값을 받아
+   - 카메라로 프로브 마커 위치를 추적하고
+   - 매트 좌표(mm) 격자에 측정값을 쌓아 영상 위에 색 지도로 겹쳐 그립니다.
+   ===================================================================== */
+const $ = (id) => document.getElementById(id);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const DB_NONE = -200;            // "신호 없음" 표시값
+const VERSION = '1.0';
+
+// ---------------------------------------------------------------- 설정
+const DEFAULTS = {
+  matW: 120, matH: 90, cell: 3, agg: 'max',
+  coils: [[30, 30], [90, 30], [50, 62], [70, 62]],
+  detector: 'diode', nVt: 26.6, adSlope: 25, adInt: -84,
+  latency: 80, tolH: 16, minS: 0.35, minV: 0.22,
+  marker: null, corners: null,
+  scaleAuto: true, scaleMin: -40, scaleMax: -10,
+  connMode: 'auto', demo: false, showTruth: true,
+  zero: null, floorDb: null, floorMv: null,
+  rT: 51, cal: null, calOn: false
+};
+let S = loadSettings();
+function loadSettings() {
+  let s = {};
+  try { s = JSON.parse(localStorage.getItem('emi.settings') || '{}') || {}; } catch (e) { s = {}; }
+  const out = JSON.parse(JSON.stringify(DEFAULTS));
+  for (const k of Object.keys(out)) if (s[k] !== undefined) out[k] = s[k];
+  return out;
+}
+function saveSettings() { try { localStorage.setItem('emi.settings', JSON.stringify(S)); } catch (e) {} }
+
+// ---------------------------------------------------------------- 검출기 변환
+// 다이오드 검파: ΔV = nVt · ln I0(Vpk / nVt)  →  역으로 풀어 Vpk(정현파 환산)를 구한 뒤 50Ω 기준 dBm
+function lnI0(x) {
+  x = Math.abs(x);
+  if (x < 3.75) {
+    const t = (x / 3.75) ** 2;
+    return Math.log(1 + t * (3.5156229 + t * (3.0899424 + t * (1.2067492 + t * (0.2659732 + t * (0.0360768 + t * 0.0045813))))));
+  }
+  const t = 3.75 / x;
+  const p = 0.39894228 + t * (0.01328592 + t * (0.00225319 + t * (-0.00157565 + t * (0.00916281 + t * (-0.02057706 + t * (0.02635537 + t * (-0.01647633 + t * 0.00392377)))))));
+  return x - 0.5 * Math.log(x) + Math.log(p);
+}
+function invLnI0(y) {           // y >= 0 → x
+  if (y <= 0) return 0;
+  let lo = 0, hi = Math.max(4, y + 10);
+  for (let i = 0; i < 60; i++) { const m = (lo + hi) / 2; if (lnI0(m) < y) lo = m; else hi = m; }
+  return (lo + hi) / 2;
+}
+function vpkToDbm(vpkVolt) { return vpkVolt > 0 ? 10 * Math.log10(vpkVolt * vpkVolt * 10) : DB_NONE; }
+function diodeDbm(dvMv) {
+  if (!(dvMv > 0.02)) return DB_NONE;
+  const x = invLnI0(dvMv / S.nVt);
+  return vpkToDbm(x * S.nVt / 1000);
+}
+function dbmToDiodeDv(dbm) {     // 데모용 역변환
+  const vpk = Math.sqrt(Math.pow(10, dbm / 10) / 10) * 1000;   // mV
+  return S.nVt * lnI0(vpk / S.nVt);
+}
+function signalMv(sig, ref) {     // 표시용 "신호 크기"
+  if (S.detector === 'ad8307') return sig;
+  return (ref - sig) - (S.zero == null ? 0 : S.zero);
+}
+// 교정 곡선: 감쇠 시험에서 얻은 (log10 ΔV, 상대 dB) 점들을 이어서 ΔV → dB 로 바꿈
+function calActive() { return S.detector === 'diode' && S.calOn && Array.isArray(S.cal) && S.cal.length >= 2; }
+function calDb(dvMv) {
+  if (!(dvMv > 0.02)) return DB_NONE;
+  const x = Math.log10(dvMv), P = S.cal;
+  let i = 0;
+  if (x <= P[0][0]) i = 0; else if (x >= P[P.length - 1][0]) i = P.length - 2;
+  else while (i < P.length - 2 && x > P[i + 1][0]) i++;
+  const a = P[i], b = P[i + 1];
+  return a[1] + (b[1] - a[1]) * (x - a[0]) / (b[0] - a[0]);
+}
+function dvToDb(dvMv) { return calActive() ? calDb(dvMv) : diodeDbm(dvMv); }
+function unitName() { return S.detector === 'ad8307' ? 'dBm' : (calActive() ? 'dB(교정)' : 'dBm(환산)'); }
+function toDb(sig, ref) {
+  if (S.detector === 'ad8307') return sig / S.adSlope + S.adInt;
+  return dvToDb(signalMv(sig, ref));
+}
+
+// ---------------------------------------------------------------- 측정값 버퍼
+const RB = 4096;
+const rb = { t: new Float64Array(RB), db: new Float64Array(RB), sig: new Float64Array(RB), ref: new Float64Array(RB), n: 0, i: 0 };
+let live = { db: DB_NONE, sig: NaN, ref: NaN, mask: 0, t: 0, ema: null };
+let rxCount = 0, lastRxT = 0;
+function ingest(sig, ref, mask, t) {
+  const db = toDb(sig, ref);
+  rb.t[rb.i] = t; rb.db[rb.i] = db; rb.sig[rb.i] = sig; rb.ref[rb.i] = ref;
+  rb.i = (rb.i + 1) % RB; rb.n = Math.min(rb.n + 1, RB);
+  live.sig = sig; live.ref = ref; live.mask = mask; live.t = t; live.db = db;
+  const p = db > DB_NONE + 1 ? Math.pow(10, db / 10) : 0;
+  live.ema = live.ema == null ? p : live.ema * 0.8 + p * 0.2;
+  rxCount++; lastRxT = performance.now();
+  if (sampler) sampler.push({ t, db, sig, ref });
+}
+function readingAt(t) {           // 시각 t에 가장 가까운 측정값
+  if (rb.n === 0) return null;
+  let best = null, bestDt = 1e9;
+  for (let k = 0; k < Math.min(rb.n, 80); k++) {
+    const j = (rb.i - 1 - k + RB) % RB;
+    const dt = Math.abs(rb.t[j] - t);
+    if (dt < bestDt) { bestDt = dt; best = j; }
+    if (rb.t[j] < t - 60) break;
+  }
+  if (best == null || bestDt > 120) return null;
+  return rb.db[best];
+}
+let sampler = null;               // 일정 시간 동안 값 모으기 (0점, 바닥, 한 점 측정)
+function collect(ms) {
+  return new Promise((resolve) => {
+    sampler = [];
+    setTimeout(() => { const s = sampler; sampler = null; resolve(s); }, ms);
+  });
+}
+function statsDb(arr) {           // dB 값들을 전력 평균
+  const v = arr.map(r => r.db).filter(d => d > DB_NONE + 1);
+  if (!v.length) return { mean: DB_NONE, sd: 0, n: 0 };
+  const lin = v.map(d => Math.pow(10, d / 10));
+  const m = lin.reduce((a, b) => a + b, 0) / lin.length;
+  const meanDb = 10 * Math.log10(m);
+  const sd = Math.sqrt(v.reduce((a, d) => a + (d - meanDb) ** 2, 0) / v.length);
+  return { mean: meanDb, sd, n: v.length };
+}
+
+// ---------------------------------------------------------------- USB 연결
+const enc = new TextEncoder();
+const Conn = {
+  kind: null, port: null, reader: null, writer: null, dev: null, epIn: 0, epOut: 0, ctrlIf: 0, buf: '', dec: new TextDecoder(),
+  get connected() { return !!this.kind; },
+  async connect() {
+    if (S.demo) { toast('데모 신호가 켜져 있습니다. 설정에서 끈 뒤 연결하세요.'); return; }
+    let mode = S.connMode;
+    const android = /Android/i.test(navigator.userAgent);
+    if (mode === 'auto') mode = android && navigator.usb ? 'usb' : (navigator.serial ? 'serial' : (navigator.usb ? 'usb' : null));
+    if (!mode) throw new Error('이 브라우저는 USB 장치 연결을 지원하지 않습니다. 안드로이드 크롬, 또는 PC의 크롬·엣지에서 여세요.');
+    if (!window.isSecureContext) throw new Error('보안 주소(https)에서만 USB를 쓸 수 있습니다. GitHub Pages 주소로 여세요.');
+    if (mode === 'serial') await this.openSerial(); else await this.openUsb();
+    this.buf = '';
+    setConnUi();
+    setTimeout(() => this.write('P\n'), 300);
+    setTimeout(() => { if (this.connected && rxCount === 0) toast('연결됐지만 데이터가 오지 않습니다. 보드의 USB 포트(UART/COM 아님)와 펌웨어 설정(USB CDC On Boot: Enabled)을 확인하세요.', 8000); }, 3500);
+  },
+  async openSerial() {
+    if (!navigator.serial) throw new Error('이 브라우저에는 Web Serial이 없습니다.');
+    const port = await navigator.serial.requestPort();
+    await port.open({ baudRate: 115200, bufferSize: 16384 });
+    this.port = port; this.kind = 'serial';
+    this.writer = port.writable.getWriter();
+    this.reader = port.readable.getReader();
+    (async () => {
+      try {
+        for (;;) {
+          const { value, done } = await this.reader.read();
+          if (done) break;
+          if (value) this.feed(value);
+        }
+      } catch (e) { /* 끊김 */ }
+      this.lost();
+    })();
+  },
+  async openUsb() {
+    if (!navigator.usb) throw new Error('이 브라우저에는 WebUSB가 없습니다.');
+    const dev = await navigator.usb.requestDevice({ filters: [{ classCode: 2 }, { vendorId: 0x303a }] });
+    await dev.open();
+    if (dev.configuration === null) await dev.selectConfiguration(1);
+    let ctrl = null, data = null;
+    for (const itf of dev.configuration.interfaces) {
+      const alt = itf.alternates[0];
+      if (alt.interfaceClass === 2 && !ctrl) ctrl = itf;
+      if (alt.interfaceClass === 10 && !data) data = itf;
+    }
+    if (!data) { try { await dev.close(); } catch (e) {} throw new Error('이 장치에서 시리얼(CDC) 통로를 찾지 못했습니다. 보드의 USB 포트에 꽂았는지 확인하세요.'); }
+    if (ctrl) await dev.claimInterface(ctrl.interfaceNumber);
+    if (data !== ctrl) await dev.claimInterface(data.interfaceNumber);
+    const alt = data.alternates[0];
+    const inEp = alt.endpoints.find(e => e.direction === 'in' && e.type === 'bulk');
+    const outEp = alt.endpoints.find(e => e.direction === 'out' && e.type === 'bulk');
+    if (!inEp) throw new Error('입력 엔드포인트가 없습니다.');
+    this.dev = dev; this.epIn = inEp.endpointNumber; this.epOut = outEp ? outEp.endpointNumber : 0;
+    this.inSize = inEp.packetSize || 64;
+    this.ctrlIf = ctrl ? ctrl.interfaceNumber : data.interfaceNumber;
+    try {   // SET_LINE_CODING 115200 8N1
+      const b = new ArrayBuffer(7), v = new DataView(b);
+      v.setUint32(0, 115200, true); v.setUint8(4, 0); v.setUint8(5, 0); v.setUint8(6, 8);
+      await dev.controlTransferOut({ requestType: 'class', recipient: 'interface', request: 0x20, value: 0, index: this.ctrlIf }, b);
+    } catch (e) {}
+    try {   // SET_CONTROL_LINE_STATE: DTR=1, RTS=1 (리셋 신호를 만들지 않는 조합)
+      await dev.controlTransferOut({ requestType: 'class', recipient: 'interface', request: 0x22, value: 0x03, index: this.ctrlIf });
+    } catch (e) {}
+    this.kind = 'usb';
+    (async () => {
+      while (this.kind === 'usb' && this.dev === dev) {
+        try {
+          const r = await dev.transferIn(this.epIn, this.inSize * 4);
+          if (r.status === 'ok' && r.data && r.data.byteLength) this.feed(new Uint8Array(r.data.buffer, r.data.byteOffset, r.data.byteLength));
+          else if (r.status === 'stall') await dev.clearHalt('in', this.epIn);
+        } catch (e) { break; }
+      }
+      if (this.dev === dev) this.lost();
+    })();
+  },
+  feed(bytes) {
+    this.buf += this.dec.decode(bytes, { stream: true });
+    let k;
+    while ((k = this.buf.indexOf('\n')) >= 0) {
+      const line = this.buf.slice(0, k).trim();
+      this.buf = this.buf.slice(k + 1);
+      if (line) onLine(line, performance.now());
+    }
+    if (this.buf.length > 4096) this.buf = '';
+  },
+  async write(s) {
+    try {
+      if (this.kind === 'serial' && this.writer) await this.writer.write(enc.encode(s));
+      else if (this.kind === 'usb' && this.dev && this.epOut) await this.dev.transferOut(this.epOut, enc.encode(s));
+    } catch (e) { /* 무시 */ }
+  },
+  async disconnect() {
+    const k = this.kind; this.kind = null;
+    try {
+      if (k === 'serial') {
+        try { await this.reader.cancel(); } catch (e) {}
+        try { this.reader.releaseLock(); } catch (e) {}
+        try { this.writer.releaseLock(); } catch (e) {}
+        try { await this.port.close(); } catch (e) {}
+      } else if (k === 'usb' && this.dev) {
+        const d = this.dev; this.dev = null;
+        try { await d.close(); } catch (e) {}
+      }
+    } finally { this.port = null; this.reader = null; this.writer = null; this.dev = null; setConnUi(); }
+  },
+  lost() { if (this.kind) { this.kind = null; this.dev = null; this.port = null; setConnUi(); toast('USB 연결이 끊겼습니다. 케이블을 확인하고 다시 연결하세요.'); } }
+};
+// 보드 시계(ms)를 이 기기 시계로 옮김: (도착 시각 - 보드 시각)의 최솟값을 기준으로 삼아 묶음 전송의 흔들림 제거
+let devOff = null, lastDevMs = -1;
+function devToLocal(devMs, arrival) {
+  if (!isFinite(devMs)) return arrival;
+  if (devMs < lastDevMs - 1000) devOff = null;          // 보드가 다시 켜짐
+  lastDevMs = devMs;
+  const est = arrival - devMs;
+  if (devOff == null || est < devOff) devOff = est; else devOff += (est - devOff) * 0.002;
+  return devMs + devOff;
+}
+function onLine(line, t) {
+  if (line.startsWith('D,')) {
+    const p = line.split(',');
+    if (p.length < 5) return;
+    const sig = parseFloat(p[2]), ref = parseFloat(p[3]), mask = parseInt(p[4], 10);
+    if (!isFinite(sig) || !isFinite(ref)) return;
+    ingest(sig, ref, isFinite(mask) ? mask : 0, devToLocal(parseFloat(p[1]), t));
+  } else if (line.startsWith('# COIL')) {
+    const m = parseInt(line.slice(6), 10); if (isFinite(m)) live.mask = m;
+  } else if (line.startsWith('# ERROR')) {
+    toast('보드에서 오류 신호: ' + line.slice(2), 6000);
+  }
+}
+if (navigator.usb) navigator.usb.addEventListener('disconnect', (e) => { if (Conn.dev && e.device === Conn.dev) Conn.lost(); });
+if (navigator.serial) navigator.serial.addEventListener('disconnect', (e) => { if (Conn.port && (e.target === Conn.port || e.port === Conn.port)) Conn.lost(); });
+
+// 코일 명령 (데모 모드면 앱 안에서 처리)
+let demoMask = 0;
+const CMD_MASK = [0x0, 0x1, 0x2, 0x4, 0x8, 0xC, 0xF];
+function sendCoil(n) {
+  if (S.demo) { demoMask = CMD_MASK[n]; live.mask = demoMask; }
+  else if (Conn.connected) Conn.write('C' + n + '\n');
+  else { toast('USB를 먼저 연결하세요.'); return; }
+  if (!blind.active) markCoilButtons(CMD_MASK[n]);
+}
+function markCoilButtons(mask) {
+  document.querySelectorAll('#coilBtns .btn').forEach(b => b.classList.toggle('sel', CMD_MASK[+b.dataset.c] === mask));
+}
+
+// ---------------------------------------------------------------- 데모 신호
+// 3회 평면 나선 코일 위 2 mm 높이에서 계산한 결합 계수(부호 포함), 0~40 mm, 1 mm 간격
+const COUPLE = [1, .97324, .90084, .79449, .66792, .53375, .4025, .28007, .17041, .07741, .00432, -.04661, -.07529, -.08503, -.08165, -.07115, -.05853, -.04731, -.03847, -.03167, -.0264, -.02227, -.01897, -.01631, -.01414, -.01235, -.01085, -.00959, -.00852, -.00761, -.00682, -.00614, -.00555, -.00504, -.00458, -.00418, -.00383, -.00351, -.00323, -.00298, -.00275];
+function coupling(r) { if (r >= 40) return COUPLE[40] * Math.pow(40 / r, 3); const i = Math.floor(r), f = r - i; return COUPLE[i] * (1 - f) + COUPLE[i + 1] * f; }
+let demoTimer = null;
+function demoDbm(p) {             // 데모: 위치 p(mm)에서의 "실제" 세기 (dBm)
+  let a = 0;
+  if (p) for (let i = 0; i < 4; i++) if (demoMask & (1 << i)) {
+    const c = S.coils[i]; a += coupling(Math.hypot(p.x - c[0], p.y - c[1]));
+  }
+  return a !== 0 ? -11.1 + 20 * Math.log10(Math.abs(a)) : -300;
+}
+function demoSigRef(dbm) {
+  if (S.detector === 'ad8307') {
+    const d = Math.max(dbm, -78 + (Math.random() - .5) * 2);
+    return [(d - S.adInt) * S.adSlope + (Math.random() - .5) * 2, 0];
+  }
+  const dv = (dbm > -120 ? dbmToDiodeDv(dbm) : 0) + gauss() * 0.15;
+  const ref = 1262 + gauss() * 0.3;
+  return [ref - (S.zero || 0) - dv, ref];
+}
+function demoDbAt(p) { const [s, r] = demoSigRef(demoDbm(p)); return toDb(s, r); }
+function demoTick() {
+  const dbm = demoDbm(probe.mm);
+  let sig, ref;
+  [sig, ref] = demoSigRef(dbm);
+  ingest(sig, ref, demoMask, performance.now());
+}
+function gauss() { let u = 0, v = 0; while (!u) u = Math.random(); while (!v) v = Math.random(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); }
+function setDemo(on) {
+  S.demo = on; saveSettings();
+  $('badge').hidden = !on;
+  if (demoTimer) { clearInterval(demoTimer); demoTimer = null; }
+  if (on) { if (Conn.connected) Conn.disconnect(); demoTimer = setInterval(demoTick, 10); }
+  setConnUi();
+}
+
+// ---------------------------------------------------------------- 호모그래피 (매트 mm ↔ 영상 px)
+function solveH(src, dst) {
+  const A = [], b = [];
+  for (let i = 0; i < 4; i++) {
+    const [x, y] = src[i], [u, v] = dst[i];
+    A.push([x, y, 1, 0, 0, 0, -u * x, -u * y]); b.push(u);
+    A.push([0, 0, 0, x, y, 1, -v * x, -v * y]); b.push(v);
+  }
+  const n = 8;
+  for (let c = 0; c < n; c++) {
+    let piv = c;
+    for (let r = c + 1; r < n; r++) if (Math.abs(A[r][c]) > Math.abs(A[piv][c])) piv = r;
+    if (Math.abs(A[piv][c]) < 1e-12) return null;
+    [A[c], A[piv]] = [A[piv], A[c]]; [b[c], b[piv]] = [b[piv], b[c]];
+    for (let r = 0; r < n; r++) if (r !== c) {
+      const f = A[r][c] / A[c][c];
+      for (let k = c; k < n; k++) A[r][k] -= f * A[c][k];
+      b[r] -= f * b[c];
+    }
+  }
+  const h = b.map((v, i) => v / A[i][i]);
+  return [h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7], 1];
+}
+function applyH(H, x, y) { const w = H[6] * x + H[7] * y + H[8]; return [(H[0] * x + H[1] * y + H[2]) / w, (H[3] * x + H[4] * y + H[5]) / w]; }
+let Hm2i = null, Hi2m = null;
+function matCorners() { return [[0, 0], [S.matW, 0], [S.matW, S.matH], [0, S.matH]]; }
+function updateH() {
+  Hm2i = Hi2m = null;
+  if (S.corners && S.corners.length === 4) { Hm2i = solveH(matCorners(), S.corners); Hi2m = solveH(S.corners, matCorners()); }
+  maskDirty = true; cellCacheDirty = true;
+}
+
+// ---------------------------------------------------------------- 카메라
+const video = $('video');
+let camOn = false, manual = false, stream = null;
+async function startCamera(deviceId) {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('이 브라우저에서는 카메라를 쓸 수 없습니다 (https 주소인지 확인).');
+  stopCamera();
+  const cons = deviceId ? { deviceId: { exact: deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }
+                        : { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } };
+  stream = await navigator.mediaDevices.getUserMedia({ video: cons, audio: false });
+  video.srcObject = stream;
+  await video.play();
+  camOn = true; manual = false;
+  try {
+    const list = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
+    const sel = $('camSelect');
+    if (list.length > 1) {
+      const cur = stream.getVideoTracks()[0].getSettings().deviceId;
+      sel.innerHTML = list.map((d, i) => `<option value="${d.deviceId}" ${d.deviceId === cur ? 'selected' : ''}>${d.label || '카메라 ' + (i + 1)}</option>`).join('');
+      sel.hidden = false;
+    }
+  } catch (e) {}
+  $('btnCam').textContent = '카메라 다시 켜기';
+  requestWake();
+  maskDirty = true; cellCacheDirty = true;
+  armVfc();
+  updateHint();
+}
+// 새 카메라 프레임이 들어왔는지 표시 (지원하지 않는 브라우저는 매 화면 갱신마다 처리)
+let newVideoFrame = false, vfcArmed = false;
+function armVfc() {
+  if (!video.requestVideoFrameCallback || vfcArmed) return;
+  vfcArmed = true;
+  video.requestVideoFrameCallback(() => { vfcArmed = false; newVideoFrame = true; if (camOn) armVfc(); });
+}
+function stopCamera() { if (stream) stream.getTracks().forEach(t => t.stop()); stream = null; camOn = false; }
+
+// ---------------------------------------------------------------- 마커 추적
+const proc = document.createElement('canvas');
+const pctx = proc.getContext('2d', { willReadFrequently: true });
+let maskDirty = true, mask = null, pw = 0, ph = 0, kScale = 1;
+const probe = { img: null, mm: null, found: false, lastSeen: 0 };
+function buildMask() {
+  const vw = video.videoWidth, vh = video.videoHeight;
+  pw = 320; ph = Math.round(vh * pw / vw); kScale = vw / pw;
+  proc.width = pw; proc.height = ph;
+  mask = new Uint8Array(pw * ph);
+  if (!Hm2i) { mask.fill(1); maskDirty = false; return; }
+  const m = 15;
+  const poly = [[-m, -m], [S.matW + m, -m], [S.matW + m, S.matH + m], [-m, S.matH + m]].map(([x, y]) => { const q = applyH(Hm2i, x, y); return [q[0] / kScale, q[1] / kScale]; });
+  for (let y = 0; y < ph; y++) for (let x = 0; x < pw; x++) mask[y * pw + x] = pointInPoly(x + .5, y + .5, poly) ? 1 : 0;
+  maskDirty = false;
+}
+function pointInPoly(x, y, P) {
+  let c = false;
+  for (let i = 0, j = P.length - 1; i < P.length; j = i++) {
+    if (((P[i][1] > y) !== (P[j][1] > y)) && (x < (P[j][0] - P[i][0]) * (y - P[i][1]) / (P[j][1] - P[i][1]) + P[i][0])) c = !c;
+  }
+  return c;
+}
+function rgb2hsv(r, g, b) {
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+  let h = 0;
+  if (d > 0) { if (mx === r) h = ((g - b) / d) % 6; else if (mx === g) h = (b - r) / d + 2; else h = (r - g) / d + 4; h *= 60; if (h < 0) h += 360; }
+  return { h, s: mx ? d / mx : 0, v: mx / 255 };
+}
+function trackMarker() {
+  if (!camOn || !video.videoWidth || !S.marker) return null;
+  if (maskDirty || !mask) buildMask();
+  pctx.drawImage(video, 0, 0, pw, ph);
+  const d = pctx.getImageData(0, 0, pw, ph).data;
+  const th = S.marker.h, tol = S.tolH;
+  const sMin = Math.max(S.minS, S.marker.s * 0.55), vMin = Math.max(S.minV, S.marker.v * 0.45) * 255;
+  let sx = 0, sy = 0, n = 0;
+  const hit = new Uint8Array(pw * ph);
+  for (let y = 0, i = 0, p = 0; y < ph; y++) {
+    for (let x = 0; x < pw; x++, i += 4, p++) {
+      if (!mask[p]) continue;
+      const r = d[i], g = d[i + 1], b = d[i + 2];
+      const mx = r > g ? (r > b ? r : b) : (g > b ? g : b);
+      if (mx < vMin) continue;
+      const mn = r < g ? (r < b ? r : b) : (g < b ? g : b), dd = mx - mn;
+      if (dd < sMin * mx) continue;
+      let h; if (mx === r) h = ((g - b) / dd) % 6; else if (mx === g) h = (b - r) / dd + 2; else h = (r - g) / dd + 4;
+      h *= 60; if (h < 0) h += 360;
+      let dh = Math.abs(h - th); if (dh > 180) dh = 360 - dh;
+      if (dh > tol) continue;
+      hit[p] = 1; sx += x; sy += y; n++;
+    }
+  }
+  if (n < 6) return null;
+  // 2차: 1차 중심 주변만 다시 평균 (멀리 떨어진 잡음 제거)
+  let cx = sx / n, cy = sy / n;
+  const R = Math.max(12, Math.sqrt(n) * 1.6);
+  let sx2 = 0, sy2 = 0, n2 = 0;
+  const x0 = Math.max(0, Math.floor(cx - R)), x1 = Math.min(pw - 1, Math.ceil(cx + R));
+  const y0 = Math.max(0, Math.floor(cy - R)), y1 = Math.min(ph - 1, Math.ceil(cy + R));
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+    if (hit[y * pw + x] && (x - cx) ** 2 + (y - cy) ** 2 <= R * R) { sx2 += x; sy2 += y; n2++; }
+  }
+  if (n2 < 6) return null;
+  return { x: (sx2 / n2 + .5) * kScale, y: (sy2 / n2 + .5) * kScale, n: n2 };
+}
+function pickMarkerAt(ix, iy) {
+  if (!video.videoWidth) return false;
+  if (maskDirty || !mask) buildMask();
+  pctx.drawImage(video, 0, 0, pw, ph);
+  const cx = Math.round(ix / kScale), cy = Math.round(iy / kScale);
+  let r = 0, g = 0, b = 0, n = 0;
+  for (let y = cy - 2; y <= cy + 2; y++) for (let x = cx - 2; x <= cx + 2; x++) {
+    if (x < 0 || y < 0 || x >= pw || y >= ph) continue;
+    const q = pctx.getImageData(x, y, 1, 1).data; r += q[0]; g += q[1]; b += q[2]; n++;
+  }
+  if (!n) return false;
+  const hsv = rgb2hsv(r / n, g / n, b / n);
+  if (hsv.s < 0.3 || hsv.v < 0.2) { toast('색이 너무 흐립니다. 형광색 스티커 한가운데를 탭하세요.'); return false; }
+  S.marker = { h: hsv.h, s: hsv.s, v: hsv.v }; saveSettings();
+  return true;
+}
+
+// ---------------------------------------------------------------- 지도 (격자)
+let grid = null;
+function newGrid() {
+  const c = S.cell, nx = Math.ceil(S.matW / c), ny = Math.ceil(S.matH / c);
+  return { c, nx, ny, w: S.matW, h: S.matH, max: new Float32Array(nx * ny).fill(DB_NONE), sum: new Float64Array(nx * ny), cnt: new Uint32Array(nx * ny) };
+}
+function cloneGrid(g) { return g && { c: g.c, nx: g.nx, ny: g.ny, w: g.w, h: g.h, max: g.max.slice(), sum: g.sum.slice(), cnt: g.cnt.slice() }; }
+function gridAdd(g, x, y, db) {
+  if (x < 0 || y < 0 || x >= g.w || y >= g.h || !(db > DB_NONE + 1)) return;
+  const ix = Math.min(g.nx - 1, Math.floor(x / g.c)), iy = Math.min(g.ny - 1, Math.floor(y / g.c));
+  const k = iy * g.nx + ix;
+  if (db > g.max[k]) g.max[k] = db;
+  g.sum[k] += Math.pow(10, db / 10); g.cnt[k]++;
+}
+function cellVal(g, k) {
+  if (!g || !g.cnt[k]) return DB_NONE;
+  return S.agg === 'mean' ? 10 * Math.log10(g.sum[k] / g.cnt[k]) : g.max[k];
+}
+let slotA = null, slotB = null;
+grid = newGrid();
+
+function viewGrid() {
+  const m = $('viewMode').value;
+  if (m === 'A') return { g: slotA, diff: false };
+  if (m === 'B') return { g: slotB, diff: false };
+  if (m === 'D') return { g: null, diff: true };
+  return { g: grid, diff: false };
+}
+function diffVal(k) {
+  if (!slotA || !slotB || slotA.nx !== slotB.nx || slotA.ny !== slotB.ny) return null;
+  const a = cellVal(slotA, k), b = cellVal(slotB, k);
+  if (a <= DB_NONE + 1 || b <= DB_NONE + 1) return null;
+  return b - a;
+}
+function findPeak(g) {
+  if (!g) return null;
+  let best = -1, bv = DB_NONE;
+  for (let k = 0; k < g.nx * g.ny; k++) { const v = cellVal(g, k); if (v > bv) { bv = v; best = k; } }
+  if (best < 0 || bv <= DB_NONE + 1) return null;
+  // 최댓값 칸 둘레 6 mm 안에서, 최댓값보다 3 dB 이내인 칸들의 전력 가중 중심 (다른 봉우리는 섞지 않음)
+  const bx = ((best % g.nx) + .5) * g.c, by = (Math.floor(best / g.nx) + .5) * g.c;
+  let sw = 0, sx = 0, sy = 0;
+  for (let k = 0; k < g.nx * g.ny; k++) {
+    const v = cellVal(g, k);
+    if (v < bv - 3) continue;
+    const x = ((k % g.nx) + .5) * g.c, y = (Math.floor(k / g.nx) + .5) * g.c;
+    if (Math.hypot(x - bx, y - by) > 6) continue;
+    const w = Math.pow(10, (v - bv) / 10); sx += w * x; sy += w * y; sw += w;
+  }
+  return { x: sx / sw, y: sy / sw, db: bv };
+}
+function floorShown() {
+  if (S.detector === 'diode') return S.floorMv != null ? dvToDb(S.floorMv) : (calActive() ? -30 : -40);
+  return S.floorDb != null ? S.floorDb : -75;
+}
+function scaleRange(g) {
+  if (!S.scaleAuto || !g) return [S.scaleMin, S.scaleMax];
+  const v = [];
+  for (let k = 0; k < g.nx * g.ny; k++) { const x = cellVal(g, k); if (x > DB_NONE + 1) v.push(x); }
+  if (v.length < 3) return [S.scaleMin, S.scaleMax];
+  v.sort((a, b) => a - b);
+  const hi = v[Math.floor((v.length - 1) * 0.995)];
+  const lo = Math.max(v[Math.floor((v.length - 1) * 0.05)], floorShown());
+  return [Math.min(lo, hi - 6), hi];
+}
+
+// ---------------------------------------------------------------- 색
+// 세기: 한 계열(노랑→주황→빨강)의 "열" 색 띠. 약한 곳은 종이색에 가깝게, 강한 곳은 진한 빨강
+const HEAT = [[255, 242, 198], [253, 209, 122], [249, 154, 62], [226, 80, 43], [157, 28, 31]];
+function heat(t) {
+  t = clamp(t, 0, 1) * (HEAT.length - 1);
+  const i = Math.min(HEAT.length - 2, Math.floor(t)), f = t - i, a = HEAT[i], b = HEAT[i + 1];
+  return [Math.round(a[0] + (b[0] - a[0]) * f), Math.round(a[1] + (b[1] - a[1]) * f), Math.round(a[2] + (b[2] - a[2]) * f)];
+}
+// 차이(B − A): 파랑 = 줄어듦(개선), 회색 = 변화 없음, 빨강 = 늘어남
+function diverge(d, R) {
+  const t = clamp(d / R, -1, 1), mid = [200, 199, 194];
+  const end = t < 0 ? [42, 120, 214] : [227, 73, 72], a = Math.abs(t);
+  return [Math.round(mid[0] + (end[0] - mid[0]) * a), Math.round(mid[1] + (end[1] - mid[1]) * a), Math.round(mid[2] + (end[2] - mid[2]) * a)];
+}
+
+// ---------------------------------------------------------------- 그리기
+const cv = $('view'), ctx = cv.getContext('2d');
+let VW = 0, VH = 0, vs = 1, vox = 0, voy = 0, dpr = 1;
+let cellCacheDirty = true, cellCache = null;
+function layout() {
+  const r = cv.getBoundingClientRect();
+  dpr = Math.min(2, window.devicePixelRatio || 1);
+  const W = Math.max(1, Math.round(r.width * dpr)), H = Math.max(1, Math.round(r.height * dpr));
+  if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; cellCacheDirty = true; }
+  let iw, ih;
+  if (camOn && video.videoWidth) { iw = video.videoWidth; ih = video.videoHeight; }
+  else { iw = S.matW * 6 + 120; ih = S.matH * 6 + 120; }     // 수동 모드: 가상 영상 (6 px/mm)
+  if (iw !== VW || ih !== VH) { VW = iw; VH = ih; cellCacheDirty = true; }
+  const s = Math.min(cv.width / VW, cv.height / VH);
+  const ox = (cv.width - VW * s) / 2, oy = (cv.height - VH * s) / 2;
+  if (s !== vs || ox !== vox || oy !== voy) { vs = s; vox = ox; voy = oy; cellCacheDirty = true; }
+}
+function i2c(x, y) { return [vox + x * vs, voy + y * vs]; }
+function c2i(x, y) { return [(x - vox) / vs, (y - voy) / vs]; }
+function manualH() {              // 수동 모드: 매트를 가상 영상 가운데에 6 px/mm로 놓음
+  return solveH(matCorners(), [[60, 60], [60 + S.matW * 6, 60], [60 + S.matW * 6, 60 + S.matH * 6], [60, 60 + S.matH * 6]]);
+}
+function activeH() { return manual ? manualH() : Hm2i; }
+function m2c(H, x, y) { const q = applyH(H, x, y); return i2c(q[0], q[1]); }
+function buildCellCache(g, H) {
+  const pts = [];
+  for (let iy = 0; iy < g.ny; iy++) for (let ix = 0; ix < g.nx; ix++) {
+    const x0 = ix * g.c, y0 = iy * g.c, x1 = Math.min(g.w, x0 + g.c), y1 = Math.min(g.h, y0 + g.c);
+    pts.push([m2c(H, x0, y0), m2c(H, x1, y0), m2c(H, x1, y1), m2c(H, x0, y1)]);
+  }
+  cellCache = { pts, nx: g.nx, ny: g.ny, c: g.c };
+  cellCacheDirty = false;
+}
+function draw() {
+  layout();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = '#05080c'; ctx.fillRect(0, 0, cv.width, cv.height);
+  const H = activeH();
+  if (camOn && video.videoWidth) ctx.drawImage(video, vox, voy, VW * vs, VH * vs);
+  else if (manual) drawMatSchematic(H);
+  else { drawIdle(); return; }
+
+  if (H) {
+    const vg = viewGrid();
+    const g = vg.diff ? slotA || slotB : vg.g;
+    const hideMap = blind.active && blind.method === 'num';
+    if (g && !hideMap) {
+      if (cellCacheDirty || !cellCache || cellCache.nx !== g.nx || cellCache.ny !== g.ny || cellCache.c !== g.c) buildCellCache(g, H);
+      const [lo, hi] = scaleRange(vg.diff ? null : g);
+      const fl = floorShown();
+      ctx.globalAlpha = 0.62;
+      for (let k = 0; k < g.nx * g.ny; k++) {
+        let col;
+        if (vg.diff) { const d = diffVal(k); if (d == null) continue; col = diverge(d, 15); }
+        else { const v = cellVal(g, k); if (v <= DB_NONE + 1 || v < fl) continue; col = heat((v - lo) / Math.max(1e-6, hi - lo)); }
+        const p = cellCache.pts[k];
+        ctx.fillStyle = `rgb(${col[0]},${col[1]},${col[2]})`;
+        ctx.beginPath(); ctx.moveTo(p[0][0], p[0][1]); ctx.lineTo(p[1][0], p[1][1]); ctx.lineTo(p[2][0], p[2][1]); ctx.lineTo(p[3][0], p[3][1]); ctx.closePath(); ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      drawLegend(vg.diff, lo, hi);
+    }
+    // 매트 외곽선
+    ctx.strokeStyle = 'rgba(255,194,51,.95)'; ctx.lineWidth = 2 * dpr; ctx.beginPath();
+    matCorners().forEach(([x, y], i) => { const q = m2c(H, x, y); i ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]); });
+    ctx.closePath(); ctx.stroke();
+    // 코일 실제 위치
+    if (S.showTruth && !blind.active) {
+      S.coils.forEach((c, i) => {
+        const q = m2c(H, c[0], c[1]); const on = live.mask & (1 << i);
+        ctx.strokeStyle = on ? '#ffffff' : 'rgba(255,255,255,.45)'; ctx.lineWidth = 1.5 * dpr;
+        ctx.beginPath(); ctx.moveTo(q[0] - 9 * dpr, q[1]); ctx.lineTo(q[0] + 9 * dpr, q[1]); ctx.moveTo(q[0], q[1] - 9 * dpr); ctx.lineTo(q[0], q[1] + 9 * dpr); ctx.stroke();
+        label('C' + (i + 1), q[0] + 8 * dpr, q[1] - 8 * dpr, on ? '#fff' : 'rgba(255,255,255,.6)');
+      });
+    }
+    // 피크
+    const pg = vg.diff ? null : vg.g;
+    const pk = !blind.active ? findPeak(pg) : null;
+    if (pk) {
+      const q = m2c(H, pk.x, pk.y);
+      ctx.strokeStyle = '#ff3b6b'; ctx.lineWidth = 2 * dpr; ctx.beginPath(); ctx.arc(q[0], q[1], 10 * dpr, 0, Math.PI * 2); ctx.stroke();
+    }
+  }
+  // 모서리 지정 중 표시
+  if (S.corners && !manual) S.corners.forEach((c, i) => { const q = i2c(c[0], c[1]); dotLabel(q, String(i + 1), '#ffc233'); });
+  if (cornerMode) cornerTmp.forEach((c, i) => { const q = i2c(c[0], c[1]); dotLabel(q, String(i + 1), '#3ddc97'); });
+  // 프로브
+  if (probe.img && (Date.now() - probe.lastSeen < 400)) {
+    const q = i2c(probe.img[0], probe.img[1]);
+    ctx.strokeStyle = probe.mm && inside(probe.mm) ? '#3ddc97' : '#ffb020'; ctx.lineWidth = 2.5 * dpr;
+    ctx.beginPath(); ctx.arc(q[0], q[1], 14 * dpr, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(q[0] - 20 * dpr, q[1]); ctx.lineTo(q[0] - 6 * dpr, q[1]); ctx.moveTo(q[0] + 6 * dpr, q[1]); ctx.lineTo(q[0] + 20 * dpr, q[1]);
+    ctx.moveTo(q[0], q[1] - 20 * dpr); ctx.lineTo(q[0], q[1] - 6 * dpr); ctx.moveTo(q[0], q[1] + 6 * dpr); ctx.lineTo(q[0], q[1] + 20 * dpr); ctx.stroke();
+  }
+  if (manual && stepper.target) {
+    const q = m2c(activeH(), stepper.target[0], stepper.target[1]);
+    ctx.strokeStyle = '#5aa9ff'; ctx.lineWidth = 2 * dpr; ctx.setLineDash([6 * dpr, 4 * dpr]);
+    ctx.beginPath(); ctx.arc(q[0], q[1], 12 * dpr, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+  }
+}
+function inside(p) { return p.x >= 0 && p.y >= 0 && p.x <= S.matW && p.y <= S.matH; }
+const FONT = getComputedStyle(document.body).fontFamily;
+function label(t, x, y, col) {
+  ctx.font = `${12 * dpr}px ${FONT}`;
+  ctx.lineWidth = 3 * dpr; ctx.strokeStyle = 'rgba(0,0,0,.7)'; ctx.strokeText(t, x, y);
+  ctx.fillStyle = col; ctx.fillText(t, x, y);
+}
+function dotLabel(q, t, col) {
+  ctx.fillStyle = col; ctx.beginPath(); ctx.arc(q[0], q[1], 6 * dpr, 0, Math.PI * 2); ctx.fill();
+  label(t, q[0] + 9 * dpr, q[1] - 9 * dpr, col);
+}
+function drawIdle() {
+  ctx.fillStyle = '#8a96a6'; ctx.font = `${14 * dpr}px ${FONT}`;
+  ctx.textAlign = 'center';
+  ctx.fillText('카메라를 켜거나 "카메라 없이(수동 위치)"를 고르세요', cv.width / 2, cv.height / 2);
+  ctx.textAlign = 'left';
+}
+function drawMatSchematic(H) {
+  ctx.fillStyle = '#f4f2ea'; ctx.beginPath();
+  matCorners().forEach(([x, y], i) => { const q = m2c(H, x, y); i ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]); });
+  ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = 'rgba(0,0,0,.15)'; ctx.lineWidth = 1;
+  for (let x = 10; x < S.matW; x += 10) { const a = m2c(H, x, 0), b = m2c(H, x, S.matH); ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); }
+  for (let y = 10; y < S.matH; y += 10) { const a = m2c(H, 0, y), b = m2c(H, S.matW, y); ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); }
+  if (manual && probe.mm) { const q = m2c(H, probe.mm.x, probe.mm.y); probe.img = c2i(q[0], q[1]); probe.lastSeen = Date.now(); }
+}
+function drawLegend(diff, lo, hi) {
+  const w = 14 * dpr, h = Math.min(160 * dpr, cv.height * 0.45), x = cv.width - w - 12 * dpr, y = 18 * dpr;
+  for (let i = 0; i < h; i++) {
+    const t = 1 - i / h;
+    const c = diff ? diverge((t * 2 - 1) * 15, 15) : heat(t);
+    ctx.fillStyle = `rgb(${c[0]},${c[1]},${c[2]})`; ctx.fillRect(x, y + i, w, 1);
+  }
+  ctx.strokeStyle = 'rgba(255,255,255,.6)'; ctx.strokeRect(x, y, w, h);
+  ctx.textAlign = 'right';
+  if (diff) { label('+15 dB 늘어남', x - 4 * dpr, y + 10 * dpr, '#fff'); label('0', x - 4 * dpr, y + h / 2 + 4 * dpr, '#fff'); label('-15 dB 줄어듦', x - 4 * dpr, y + h, '#fff'); }
+  else { label(hi.toFixed(0) + ' ' + unitName(), x - 4 * dpr, y + 10 * dpr, '#fff'); label(lo.toFixed(0) + ' ' + unitName(), x - 4 * dpr, y + h, '#fff'); }
+  ctx.textAlign = 'left';
+}
+
+// ---------------------------------------------------------------- 프레임 루프
+let scanning = false;
+let lastFrameT = 0;
+let manualWin = null;             // 수동 위치 모드: 탭한 뒤 0.15~1.15초 동안만 기록
+let lastScanPos = null;
+function frame() {
+  const now = performance.now();
+  let fresh = false;
+  if (camOn && video.videoWidth && (newVideoFrame || !video.requestVideoFrameCallback)) {
+    newVideoFrame = false; fresh = true;
+    const r = trackMarker();
+    if (r) {
+      const prevImg = probe.img;
+      const jump = prevImg ? Math.hypot(prevImg[0] - r.x, prevImg[1] - r.y) : 1e9;
+      probe.img = (prevImg && jump < 80) ? [prevImg[0] * 0.2 + r.x * 0.8, prevImg[1] * 0.2 + r.y * 0.8] : [r.x, r.y];
+      probe.lastSeen = Date.now();
+      if (Hi2m) { const m = applyH(Hi2m, probe.img[0], probe.img[1]); probe.mm = { x: m[0], y: m[1] }; } else probe.mm = null;
+    } else if (Date.now() - probe.lastSeen > 400) { probe.mm = null; probe.img = null; }
+  }
+  if (scanning && probe.mm && inside(probe.mm) && (!blind.active || blind.trial)) {
+    if (manual) {
+      if (manualWin && now >= manualWin.t0 && now <= manualWin.t1) { const v = S.demo ? demoDbAt(probe.mm) : readingAt(now); if (v != null) gridAdd(grid, probe.mm.x, probe.mm.y, v); }
+    } else if (fresh) {
+      // 데모 신호는 지금 위치에서 바로 계산(지연 없음), 실제 신호는 카메라 지연만큼 과거 값을 씀
+      const v = S.demo ? demoDbAt(probe.mm) : readingAt(now - S.latency);
+      if (v != null) {
+        const a = lastScanPos, b = probe.mm;
+        const dist = a ? Math.hypot(b.x - a.x, b.y - a.y) : 0;
+        if (a && dist > grid.c * 0.5 && dist < 12 && a.v > DB_NONE + 1 && v > DB_NONE + 1) {
+          // 한 프레임 사이 지나간 칸도 채움: 앞뒤 측정값을 거리 비율로 이어 붙임
+          const n = Math.ceil(dist / (grid.c * 0.5));
+          for (let i = 1; i <= n; i++) { const f = i / n; gridAdd(grid, a.x + (b.x - a.x) * f, a.y + (b.y - a.y) * f, a.v + (v - a.v) * f); }
+        } else gridAdd(grid, b.x, b.y, v);
+        lastScanPos = { x: b.x, y: b.y, v };
+      }
+    }
+  } else if (fresh) lastScanPos = null;
+  draw();
+  if (now - lastFrameT > 200) { lastFrameT = now; updateReadouts(); }
+  requestAnimationFrame(frame);
+}
+function schedule() { requestAnimationFrame(frame); }
+
+// ---------------------------------------------------------------- 화면 숫자
+function fmtDb(db) { return db > DB_NONE + 1 ? db.toFixed(1) : '--.-'; }
+function updateReadouts() {
+  const p = live.ema;
+  const db = p > 0 ? 10 * Math.log10(p) : DB_NONE;
+  $('liveDb').textContent = fmtDb(db);
+  const sm = signalMv(live.sig, live.ref);
+  $('liveSub').textContent = S.detector === 'ad8307' ? `dBm · OUT ${isFinite(live.sig) ? live.sig.toFixed(0) : '----'} mV` : `${unitName()} · ΔV ${isFinite(sm) ? sm.toFixed(2) : '--'} mV`;
+  // 회로 점검
+  if (isFinite(live.sig)) {
+    $('chkRaw').textContent = `SIG ${live.sig.toFixed(1)} mV · REF ${live.ref.toFixed(1)} mV`;
+    const v = verdict(live.sig, live.ref);
+    $('chkVerdict').innerHTML = `<span class="${v.cls}">${v.text}</span>`;
+  }
+  // 연결 상태
+  if (Conn.connected || S.demo) {
+    const stale = performance.now() - lastRxT > 1500;
+    $('connDot').className = 'dot ' + (stale ? 'warn' : 'ok');
+    $('connText').textContent = S.demo ? '데모 신호' : (stale ? '연결됨 · 데이터 없음' : `연결됨 · ${Conn.kind === 'usb' ? 'WebUSB' : 'Serial'}`);
+  }
+  // 피크·정확도
+  const pk = findPeak(grid);
+  if (pk && !blind.active) {
+    $('peakInfo').textContent = `피크: (${pk.x.toFixed(1)}, ${pk.y.toFixed(1)}) mm · ${pk.db.toFixed(1)} ${unitName()}`;
+    const single = [1, 2, 4, 8].indexOf(live.mask);
+    if (single >= 0) {
+      const c = S.coils[single], err = Math.hypot(pk.x - c[0], pk.y - c[1]);
+      $('accInfo').textContent = `C${single + 1} 실제 (${c[0]}, ${c[1]}) · 피크 (${pk.x.toFixed(1)}, ${pk.y.toFixed(1)}) · 오차 ${err.toFixed(1)} mm`;
+      accCur = { coil: single + 1, tx: c[0], ty: c[1], px: pk.x, py: pk.y, err, db: pk.db };
+    } else { $('accInfo').textContent = '코일 하나만 켠 상태에서 스캔하면 오차를 계산합니다.'; accCur = null; }
+  } else if (!blind.active) { $('peakInfo').textContent = '피크: -'; }
+  if (blind.active && blind.trial) $('blindInfo').textContent = `시도 진행 중 · ${((performance.now() - blind.trial.t0) / 1000).toFixed(1)} s · 근원을 찾으면 프로브를 그 위에 두고 "여기!"`;
+  updateHint();
+}
+function verdict(sig, ref) {
+  if (S.detector === 'ad8307') {
+    if (sig < 100) return { cls: 'badt', text: 'OUT이 0 V 근처입니다. AD8307 전원(3.3 V)과 ENB 연결을 확인하세요.' };
+    if (sig > 2700) return { cls: 'badt', text: 'OUT이 너무 높습니다. 입력이 과하거나 배선이 잘못됐습니다.' };
+    return { cls: 'okt', text: '정상 범위입니다.' };
+  }
+  // REF(기준 다이오드)는 신호를 받지 않으므로 배선 상태를 그대로 보여 줌
+  if (ref > 2400) return { cls: 'badt', text: 'REF가 3 V 이상: 기준 다이오드(D2)가 빠졌거나 방향이 반대입니다 (띠가 VREF 쪽).' };
+  if (ref < 600) return { cls: 'badt', text: 'REF가 0 V 근처: 100 kΩ(R5)이 빠졌거나 REF 줄이 GND와 붙었습니다.' };
+  if (ref < 1000) return { cls: 'badt', text: 'REF가 1.0 V 아래: D2 양쪽 다리가 같은 세로줄에 꽂혔거나 VREF 줄과 붙었습니다.' };
+  if (ref > 1700) return { cls: 'warnt', text: 'REF가 높습니다 (1.7 V 이상): VREF 분압 저항(2.2 kΩ·1 kΩ) 위치를 확인하세요.' };
+  if (sig > 2400) return { cls: 'badt', text: 'SIG가 3 V 이상: 검출 다이오드(D1)가 빠졌거나 방향이 반대입니다 (띠가 프로브 쪽).' };
+  if (sig > ref + 90) return { cls: 'warnt', text: `SIG가 REF보다 ${(sig - ref).toFixed(0)} mV 높습니다. D1 방향과 R4(100 kΩ) 위치를 확인하세요.` };
+  if (sig < ref - 90) return { cls: 'okt', text: `신호 감지 중 (SIG가 REF보다 ${(ref - sig).toFixed(0)} mV 낮음). 신호가 없을 때 둘이 비슷하면 정상입니다.` };
+  return { cls: 'okt', text: '정상: 두 다이오드 전압이 1.0~1.7 V에서 비슷합니다.' };
+}
+
+// ---------------------------------------------------------------- 안내 문구
+let cornerMode = false, cornerTmp = [], pickMode = false;
+function updateHint() {
+  const h = $('hint');
+  let t = '';
+  if (cornerMode) t = `매트의 ${cornerTmp.length + 1}번 모서리 표시(검은 원 안의 흰 점)를 탭하세요.`;
+  else if (pickMode) t = '프로브 위의 형광 스티커 한가운데를 탭하세요.';
+  else if (blind.active && blind.trial) t = blind.method === 'num' ? '숫자만 보고 찾기: 위의 dBm 숫자가 가장 큰 곳을 찾으세요.' : '지도를 보며 근원을 찾으세요.';
+  else if (!Conn.connected && !S.demo) t = '① 위의 "USB 연결"을 누르세요.';
+  else if (!camOn && !manual) t = '② 준비 탭에서 "카메라 켜기"를 누르세요.';
+  else if (camOn && !Hm2i) t = '③ 준비 탭에서 "모서리 지정 시작"을 누르세요.';
+  else if (camOn && !S.marker) t = '④ 준비 탭에서 "화면에서 마커 탭하기"를 누르세요.';
+  else if (S.detector === 'diode' && S.zero == null) t = '⑤ 프로브를 멀리 두고 준비 탭의 "0점 잡기"를 누르세요.';
+  else if (!scanning) t = manual ? '수동 위치: 프로브를 둔 자리를 화면에서 탭하고 스캔을 켜세요.' : '준비 완료. 위의 "스캔 ●"을 누르고 프로브로 지그재그로 훑으세요.';
+  h.hidden = !t; h.textContent = t;
+}
+
+// ---------------------------------------------------------------- 입력 (탭·드래그)
+let dragCorner = -1;
+cv.addEventListener('pointerdown', (e) => {
+  const r = cv.getBoundingClientRect();
+  const cx = (e.clientX - r.left) * dpr, cy = (e.clientY - r.top) * dpr;
+  const [ix, iy] = c2i(cx, cy);
+  if (cornerMode) {
+    cornerTmp.push([ix, iy]);
+    if (cornerTmp.length === 4) {
+      S.corners = cornerTmp.slice(); cornerTmp = []; cornerMode = false; saveSettings(); updateH(); refreshPrep();
+      toast('모서리를 저장했습니다. 노란 테두리가 매트 가장자리와 맞는지 확인하세요. 점을 끌어서 고칠 수 있습니다.');
+    }
+    updateHint(); return;
+  }
+  if (pickMode) { if (pickMarkerAt(ix, iy)) { pickMode = false; refreshPrep(); toast('마커 색을 저장했습니다. 프로브를 움직여 초록 원이 따라오는지 보세요.'); } updateHint(); return; }
+  if (manual) {
+    const inv = solveH([[60, 60], [60 + S.matW * 6, 60], [60 + S.matW * 6, 60 + S.matH * 6], [60, 60 + S.matH * 6]], matCorners());
+    const m = applyH(inv, ix, iy); probe.mm = { x: m[0], y: m[1] }; probe.lastSeen = Date.now();
+    const t = performance.now(); manualWin = { t0: t + 150, t1: t + 1150 };
+    return;
+  }
+  if (S.corners) {
+    for (let i = 0; i < 4; i++) {
+      const q = i2c(S.corners[i][0], S.corners[i][1]);
+      if (Math.hypot(q[0] - cx, q[1] - cy) < 28 * dpr) { dragCorner = i; cv.setPointerCapture(e.pointerId); return; }
+    }
+  }
+});
+cv.addEventListener('pointermove', (e) => {
+  if (dragCorner < 0) return;
+  const r = cv.getBoundingClientRect();
+  const [ix, iy] = c2i((e.clientX - r.left) * dpr, (e.clientY - r.top) * dpr);
+  S.corners[dragCorner] = [ix, iy]; updateH();
+});
+cv.addEventListener('pointerup', () => { if (dragCorner >= 0) { dragCorner = -1; saveSettings(); } });
+
+// ---------------------------------------------------------------- 수동 위치 모드 도우미
+const stepper = { target: null };
+
+// ---------------------------------------------------------------- 블라인드 시험
+const blind = { active: false, method: 'map', trial: null, results: [], last: 0 };
+function blindStart() {
+  if (!(Conn.connected || S.demo)) { toast('USB를 먼저 연결하세요.'); return; }
+  if (!(camOn && Hm2i && S.marker) && !manual) { toast('카메라·모서리·마커 준비를 먼저 끝내세요.'); return; }
+  blind.method = document.querySelector('input[name=bmethod]:checked').value;
+  let c; do { c = 1 + Math.floor(Math.random() * 4); } while (c === blind.last && Math.random() < 0.7);
+  blind.last = c;
+  blind.active = true;
+  blind.trial = { coil: c, t0: performance.now() };
+  grid = newGrid(); cellCacheDirty = true;
+  sendCoil(c);
+  markCoilButtons(-1);
+  scanning = true; setScanUi();
+  $('btnBlindHere').disabled = false; $('btnBlindStart').disabled = true;
+}
+function blindHere() {
+  if (!blind.trial) return;
+  if (!probe.mm || !inside(probe.mm)) { toast('프로브가 매트 안에서 인식돼야 제출할 수 있습니다.'); return; }
+  const t = (performance.now() - blind.trial.t0) / 1000;
+  const c = S.coils[blind.trial.coil - 1];
+  const err = Math.hypot(probe.mm.x - c[0], probe.mm.y - c[1]);
+  blind.results.push({ method: blind.method, coil: blind.trial.coil, time: t, err, px: probe.mm.x, py: probe.mm.y, when: new Date().toISOString() });
+  $('blindInfo').textContent = `정답 C${blind.trial.coil} (${c[0]}, ${c[1]}) · 제출 (${probe.mm.x.toFixed(1)}, ${probe.mm.y.toFixed(1)}) · 오차 ${err.toFixed(1)} mm · ${t.toFixed(1)} s`;
+  blind.trial = null; blind.active = false;
+  sendCoil(0); scanning = false; setScanUi();
+  $('btnBlindHere').disabled = true; $('btnBlindStart').disabled = false;
+  renderBlind();
+}
+function renderBlind() {
+  const rows = ['map', 'num'].map(m => {
+    const r = blind.results.filter(x => x.method === m);
+    if (!r.length) return '';
+    const mt = r.reduce((a, b) => a + b.time, 0) / r.length, me = r.reduce((a, b) => a + b.err, 0) / r.length;
+    const ok = r.filter(x => x.err <= 10).length;
+    return `<tr><td>${m === 'map' ? '지도 보기' : '숫자만'}</td><td>${r.length}</td><td>${mt.toFixed(1)}</td><td>${me.toFixed(1)}</td><td>${ok}/${r.length}</td></tr>`;
+  });
+  $('blindTable').querySelector('tbody').innerHTML = rows.join('');
+}
+
+// ---------------------------------------------------------------- 기록들
+const points = [];
+let accCur = null; const accLog = [];
+async function recordPoint() {
+  if (!(Conn.connected || S.demo)) { toast('USB를 먼저 연결하세요.'); return; }
+  const btn = $('btnPt'); btn.disabled = true; btn.textContent = '기록 중…';
+  const arr = await collect(2000);
+  btn.disabled = false; btn.textContent = '2초 기록';
+  if (!arr.length) { toast('2초 동안 값이 들어오지 않았습니다.'); return; }
+  const st = statsDb(arr);
+  const sm = arr.reduce((a, r) => a + signalMv(r.sig, r.ref), 0) / arr.length;
+  const lbl = $('ptLabel').value.trim() || `점 ${points.length + 1}`;
+  points.push({ label: lbl, dbm: st.mean, sd: st.sd, mv: sm, n: arr.length, when: new Date().toLocaleTimeString() });
+  renderPoints(); renderCal();
+}
+function renderPoints() {
+  const ref = points.length ? points[0].dbm : 0;
+  $('ptTable').querySelector('tbody').innerHTML = points.map(p => `<tr><td>${esc(p.label)}</td><td>${fmtDb(p.dbm)}</td><td>${p.sd.toFixed(2)}</td><td>${p.dbm > DB_NONE + 1 ? (p.dbm - ref).toFixed(2) : '-'}</td><td>${p.mv.toFixed(2)}</td><td>${p.when}</td></tr>`).join('');
+}
+function parseOhm(label) { const m = String(label).match(/(\d+)\s*Ω/); return m ? +m[1] : (/직결/.test(label) ? 0 : null); }
+function targetDb(R) { return 20 * Math.log10(S.rT / (S.rT + R)); }
+function buildCal() {
+  if (S.detector !== 'diode') { toast('교정은 다이오드 검출기에서만 씁니다. AD8307은 기울기가 정해져 있습니다.'); return; }
+  const byR = new Map();
+  for (const p of points) { const R = parseOhm(p.label); if (R == null || /검증/.test(p.label)) continue; if (p.mv > 0.02) byR.set(R, p); }
+  if (!byR.has(0) || byR.size < 3) { toast('직결 0 Ω과 직렬 저항 2개 이상(51·150·470 Ω)을 먼저 기록하세요.', 6000); return; }
+  const pts = [...byR.entries()].map(([R, p]) => [Math.log10(p.mv), targetDb(R)]).sort((a, b) => a[0] - b[0]);
+  for (let i = 1; i < pts.length; i++) if (!(pts[i][1] > pts[i - 1][1])) { toast('저항이 클수록 ΔV가 작아져야 합니다. 프로브가 움직였는지 확인하고 다시 기록하세요.', 7000); return; }
+  S.cal = pts; S.calOn = true; saveSettings(); renderCal(); refreshPrep();
+  toast(`교정 곡선 ${pts.length}점 저장. 이제 지도는 직결(0 Ω) 측정값을 0 dB로 한 상대 dB로 표시됩니다.`, 6000);
+}
+function renderCal() {
+  $('calOn').checked = !!S.calOn; $('rT').value = S.rT;
+  const rows = points.filter(p => parseOhm(p.label) != null).map(p => {
+    const R = parseOhm(p.label), t = targetDb(R), c = calActive() ? calDb(p.mv) : null;
+    return `<tr><td>${esc(p.label)}</td><td>${p.mv.toFixed(2)}</td><td>${t.toFixed(2)}</td><td>${c == null || c <= DB_NONE + 1 ? '-' : c.toFixed(2)}</td><td>${c == null || c <= DB_NONE + 1 ? '-' : (c - t).toFixed(2)}</td></tr>`;
+  });
+  $('calTable').querySelector('tbody').innerHTML = rows.join('');
+  $('calInfo').textContent = calActive() ? `교정 적용 중 (${S.cal.length}점). "검증 100 Ω" 점의 오차가 ±1 dB 안이면 교정이 잘 된 것입니다.` : (S.cal ? '교정 곡선이 있지만 꺼져 있습니다.' : '교정 전에는 다이오드 이론식으로 바꾼 "dBm(환산)"을 보여 줍니다.');
+}
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+// ---------------------------------------------------------------- 저장
+function stamp() { const d = new Date(), p = (n) => String(n).padStart(2, '0'); return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`; }
+function download(name, blob) {
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 3000);
+  toast(`${name} 저장 (다운로드 폴더)`);
+}
+function csv(rows) { return '﻿' + rows.map(r => r.map(v => typeof v === 'string' && /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v).join(',')).join('\n'); }
+function gridCsv(g) {
+  const rows = [['x_mm', 'y_mm', 'max_dBm', 'mean_dBm', 'count']];
+  for (let k = 0; k < g.nx * g.ny; k++) {
+    if (!g.cnt[k]) continue;
+    rows.push([(((k % g.nx) + .5) * g.c).toFixed(1), ((Math.floor(k / g.nx) + .5) * g.c).toFixed(1), g.max[k].toFixed(2), (10 * Math.log10(g.sum[k] / g.cnt[k])).toFixed(2), g.cnt[k]]);
+  }
+  return csv(rows);
+}
+function gridToJson(g) { return g && { c: g.c, nx: g.nx, ny: g.ny, w: g.w, h: g.h, max: Array.from(g.max), sum: Array.from(g.sum), cnt: Array.from(g.cnt) }; }
+function abStats() {
+  if (!slotA || !slotB) { $('abStats').textContent = 'A, B를 모두 저장하면 차이를 계산합니다.'; return; }
+  if (slotA.nx !== slotB.nx || slotA.ny !== slotB.ny) { $('abStats').textContent = 'A와 B의 칸 크기가 다릅니다. 같은 칸 크기로 다시 저장하세요.'; return; }
+  const d = []; let best = null;
+  for (let k = 0; k < slotA.nx * slotA.ny; k++) { const v = diffVal(k); if (v != null) { d.push(v); if (!best || v < best.v) best = { v, k }; } }
+  if (!d.length) { $('abStats').textContent = '두 지도가 겹치는 칸이 없습니다.'; return; }
+  d.sort((a, b) => a - b);
+  const mean = d.reduce((a, b) => a + b, 0) / d.length, med = d[Math.floor(d.length / 2)];
+  const pa = findPeak(slotA), pb = findPeak(slotB);
+  const bx = ((best.k % slotA.nx) + .5) * slotA.c, by = (Math.floor(best.k / slotA.nx) + .5) * slotA.c;
+  $('abStats').textContent = `겹친 칸 ${d.length}개 · 평균 ${mean.toFixed(1)} dB · 중앙값 ${med.toFixed(1)} dB · 가장 많이 줄어든 곳 (${bx.toFixed(0)}, ${by.toFixed(0)}) mm ${best.v.toFixed(1)} dB` + (pa && pb ? ` · 피크 ${pa.db.toFixed(1)} → ${pb.db.toFixed(1)} dBm (${(pb.db - pa.db).toFixed(1)} dB)` : '');
+}
+
+// ---------------------------------------------------------------- 화면 요소 연결
+function toast(msg, ms = 4000) {
+  let t = document.getElementById('toast');
+  if (!t) { t = document.createElement('div'); t.id = 'toast'; t.setAttribute('role', 'status'); Object.assign(t.style, { position: 'fixed', left: '50%', bottom: 'calc(20px + env(safe-area-inset-bottom,0px))', transform: 'translateX(-50%)', maxWidth: '92vw', background: '#1d2633', color: '#e8edf2', border: '1px solid #33425a', borderRadius: '12px', padding: '10px 14px', zIndex: 99, fontSize: '14px', boxShadow: '0 6px 24px rgba(0,0,0,.4)' }); document.body.appendChild(t); }
+  t.textContent = msg; t.hidden = false; clearTimeout(t._h); t._h = setTimeout(() => { t.hidden = true; }, ms);
+}
+function setConnUi() {
+  const on = Conn.connected || S.demo;
+  $('btnConnect').textContent = Conn.connected ? '연결 끊기' : 'USB 연결';
+  $('btnConnect').classList.toggle('primary', !Conn.connected);
+  if (!on) { $('connDot').className = 'dot'; $('connText').textContent = 'USB 연결 안 됨'; }
+  updateHint();
+}
+function setScanUi() {
+  const b = $('btnScan'); b.classList.toggle('on', scanning); b.textContent = scanning ? '스캔 중 ■' : '스캔 ●';
+  if (scanning) requestWake();
+  updateHint();
+}
+let wake = null;
+async function requestWake() { try { if ('wakeLock' in navigator && !wake) { wake = await navigator.wakeLock.request('screen'); wake.addEventListener('release', () => { wake = null; }); } } catch (e) {} }
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && (scanning || camOn)) requestWake(); });
+
+function refreshPrep() {
+  $('cornerState').textContent = S.corners ? '지정됨 (점을 끌어서 미세 조정 가능)' : '아직 지정 안 됨';
+  $('markerState').innerHTML = S.marker ? `지정됨 <span style="display:inline-block;width:14px;height:14px;border-radius:50%;vertical-align:middle;background:hsl(${S.marker.h.toFixed(0)},90%,55%)"></span> 색상 ${S.marker.h.toFixed(0)}°` : '아직 지정 안 됨';
+  $('tolH').value = S.tolH; $('tolHv').textContent = `±${S.tolH}°`;
+  const fl = S.detector === 'diode' ? S.floorMv : S.floorDb;
+  $('zeroState').textContent = `0점 ${S.zero == null ? '미설정' : S.zero.toFixed(2) + ' mV'} · 바닥 ${fl == null ? '미측정' : floorShown().toFixed(1) + ' ' + unitName() + (S.detector === 'diode' ? ` (ΔV ${S.floorMv.toFixed(2)} mV)` : '')}`;
+}
+function refreshSettings() {
+  $('detSel').value = S.detector; $('nVt').value = S.nVt; $('adSlope').value = S.adSlope; $('adInt').value = S.adInt;
+  $('diodeOpts').hidden = S.detector !== 'diode'; $('adOpts').hidden = S.detector !== 'ad8307';
+  $('latency').value = S.latency; $('matW').value = S.matW; $('matH').value = S.matH;
+  $('connMode').value = S.connMode; $('demo').checked = S.demo;
+  $('cellSel').value = String(S.cell); $('aggSel').value = S.agg;
+  $('autoScale').checked = S.scaleAuto; $('scaleMin').value = S.scaleMin; $('scaleMax').value = S.scaleMax;
+  $('showTruth').checked = S.showTruth;
+  $('coilPos').innerHTML = S.coils.map((c, i) => `<label>C${i + 1} x <input type="number" data-ci="${i}" data-k="0" value="${c[0]}" style="width:64px"> y <input type="number" data-ci="${i}" data-k="1" value="${c[1]}" style="width:64px"></label>`).join('');
+}
+
+document.querySelectorAll('#tabs button').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('#tabs button').forEach(x => x.classList.toggle('active', x === b));
+  document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + b.dataset.tab));
+}));
+$('btnConnect').addEventListener('click', async () => {
+  try { if (Conn.connected) await Conn.disconnect(); else await Conn.connect(); }
+  catch (e) { if (e && e.name === 'NotFoundError') toast('장치를 고르지 않았습니다. 목록이 비어 있으면 케이블을 보드의 "USB" 포트에 꽂았는지 확인하세요.', 7000); else toast('연결 실패: ' + (e && e.message ? e.message : e), 8000); }
+});
+$('btnScan').addEventListener('click', () => {
+  if (blind.active) { toast('블라인드 시도 중에는 "여기!"로 끝내세요.'); return; }
+  scanning = !scanning; setScanUi();
+});
+$('btnCam').addEventListener('click', async () => { try { await startCamera(); } catch (e) { toast('카메라를 켜지 못했습니다: ' + (e.message || e), 7000); } });
+$('camSelect').addEventListener('change', async (e) => { try { await startCamera(e.target.value); } catch (er) { toast('카메라 전환 실패: ' + er.message); } });
+$('btnManual').addEventListener('click', () => { stopCamera(); manual = true; probe.mm = null; cellCacheDirty = true; toast('수동 위치 모드: 프로브를 둔 자리를 화면 매트에서 탭하세요.'); updateHint(); });
+$('btnCorners').addEventListener('click', () => {
+  if (!camOn) { toast('카메라를 먼저 켜세요.'); return; }
+  cornerMode = true; cornerTmp = []; pickMode = false; updateHint();
+});
+$('btnPick').addEventListener('click', () => { if (!camOn) { toast('카메라를 먼저 켜세요.'); return; } pickMode = true; cornerMode = false; updateHint(); });
+$('tolH').addEventListener('input', (e) => { S.tolH = +e.target.value; saveSettings(); refreshPrep(); });
+$('btnZero').addEventListener('click', async () => {
+  if (!(Conn.connected || S.demo)) { toast('USB를 먼저 연결하세요.'); return; }
+  if (S.detector === 'ad8307') { toast('AD8307은 0점이 필요 없습니다. "바닥 측정"만 하세요.'); return; }
+  toast('2초 동안 0점을 잡습니다. 프로브를 움직이지 마세요.');
+  const a = await collect(2000);
+  if (!a.length) { toast('값이 들어오지 않습니다.'); return; }
+  S.zero = a.reduce((s, r) => s + (r.ref - r.sig), 0) / a.length; saveSettings(); refreshPrep(); updateHint();
+  if (Math.abs(S.zero) > 90) toast(`0점이 ${S.zero.toFixed(0)} mV로 큽니다. 코일을 끄고 프로브를 신호원에서 더 멀리 둔 뒤 다시 잡으세요. 계속 크면 D1·D2를 같은 봉지의 것으로 바꾸세요.`, 8000);
+  else toast(`0점 ${S.zero.toFixed(2)} mV 저장`);
+});
+$('btnFloor').addEventListener('click', async () => {
+  if (!(Conn.connected || S.demo)) { toast('USB를 먼저 연결하세요.'); return; }
+  toast('3초 동안 잡음 바닥을 잽니다. 프로브를 멀리 둔 채 기다리세요.');
+  const a = await collect(3000);
+  if (!a.length) { toast('값이 들어오지 않습니다.'); return; }
+  if (S.detector === 'ad8307') {
+    const v = a.map(r => r.db); const m = v.reduce((x, y) => x + y, 0) / v.length; const sd = Math.sqrt(v.reduce((x, y) => x + (y - m) ** 2, 0) / v.length);
+    S.floorDb = m + 3 * sd + 1;
+  } else {
+    const v = a.map(r => signalMv(r.sig, r.ref)); const m = v.reduce((x, y) => x + y, 0) / v.length; const sd = Math.sqrt(v.reduce((x, y) => x + (y - m) ** 2, 0) / v.length);
+    S.floorMv = Math.max(0.05, m + 3 * sd);
+  }
+  saveSettings(); refreshPrep(); toast(`바닥 ${floorShown().toFixed(1)} ${unitName()}: 이보다 약한 칸은 지도에 칠하지 않습니다.`);
+});
+document.querySelectorAll('#coilBtns .btn').forEach(b => b.addEventListener('click', () => { if (blind.active) { toast('블라인드 시도 중에는 코일을 바꿀 수 없습니다.'); return; } sendCoil(+b.dataset.c); }));
+$('showTruth').addEventListener('change', (e) => { S.showTruth = e.target.checked; saveSettings(); });
+$('btnClear').addEventListener('click', () => { grid = newGrid(); cellCacheDirty = true; toast('지도를 지웠습니다.'); });
+$('viewMode').addEventListener('change', () => { cellCacheDirty = true; abStats(); });
+$('cellSel').addEventListener('change', (e) => { S.cell = +e.target.value; saveSettings(); grid = newGrid(); cellCacheDirty = true; toast('칸 크기를 바꿔 지도를 새로 시작합니다.'); });
+$('aggSel').addEventListener('change', (e) => { S.agg = e.target.value; saveSettings(); abStats(); });
+$('autoScale').addEventListener('change', (e) => { S.scaleAuto = e.target.checked; saveSettings(); });
+$('scaleMin').addEventListener('change', (e) => { S.scaleMin = +e.target.value; saveSettings(); });
+$('scaleMax').addEventListener('change', (e) => { S.scaleMax = +e.target.value; saveSettings(); });
+$('btnPt').addEventListener('click', recordPoint);
+document.querySelectorAll('#ptPresets .btn').forEach(b => b.addEventListener('click', () => { $('ptLabel').value = b.dataset.l; }));
+$('btnPtUndo').addEventListener('click', () => { points.pop(); renderPoints(); renderCal(); });
+$('btnCal').addEventListener('click', buildCal);
+$('calOn').addEventListener('change', (e) => { S.calOn = e.target.checked && !!S.cal; e.target.checked = S.calOn; saveSettings(); renderCal(); refreshPrep(); });
+$('rT').addEventListener('change', (e) => { S.rT = clamp(+e.target.value || 51, 1, 10000); saveSettings(); renderCal(); });
+$('btnPtCsv').addEventListener('click', () => {
+  const ref = points.length ? points[0].dbm : 0;
+  download(`points_${stamp()}.csv`, new Blob([csv([['label', 'dBm', 'sd_dB', 'delta_dB_vs_first', 'signal_mV', 'samples', 'time'], ...points.map(p => [p.label, p.dbm.toFixed(2), p.sd.toFixed(3), (p.dbm - ref).toFixed(2), p.mv.toFixed(3), p.n, p.when])])], { type: 'text/csv' }));
+});
+$('btnAccRec').addEventListener('click', () => { if (!accCur) { toast('코일 하나만 켜고 스캔한 결과가 있어야 합니다.'); return; } accLog.push(Object.assign({ when: new Date().toISOString() }, accCur)); $('accCount').textContent = accLog.length + '건'; toast(`C${accCur.coil} 오차 ${accCur.err.toFixed(1)} mm 기록`); });
+$('btnAccCsv').addEventListener('click', () => download(`accuracy_${stamp()}.csv`, new Blob([csv([['coil', 'true_x', 'true_y', 'peak_x', 'peak_y', 'error_mm', 'peak_dBm', 'time'], ...accLog.map(a => [a.coil, a.tx, a.ty, a.px.toFixed(2), a.py.toFixed(2), a.err.toFixed(2), a.db.toFixed(2), a.when])])], { type: 'text/csv' })));
+$('btnBlindStart').addEventListener('click', blindStart);
+$('btnBlindHere').addEventListener('click', blindHere);
+$('btnBlindUndo').addEventListener('click', () => { blind.results.pop(); renderBlind(); });
+$('btnBlindCsv').addEventListener('click', () => download(`blind_${stamp()}.csv`, new Blob([csv([['method', 'true_coil', 'time_s', 'error_mm', 'answer_x', 'answer_y', 'time'], ...blind.results.map(r => [r.method === 'map' ? 'map' : 'number_only', r.coil, r.time.toFixed(2), r.err.toFixed(2), r.px.toFixed(2), r.py.toFixed(2), r.when])])], { type: 'text/csv' })));
+$('btnSaveA').addEventListener('click', () => { slotA = cloneGrid(grid); abStats(); toast('현재 지도를 A(대책 전)로 저장했습니다.'); });
+$('btnSaveB').addEventListener('click', () => { slotB = cloneGrid(grid); abStats(); toast('현재 지도를 B(대책 후)로 저장했습니다. 스캔 탭 보기에서 "B − A"를 고르세요.'); });
+$('btnPng').addEventListener('click', () => { draw(); cv.toBlob(b => download(`emi_${stamp()}.png`, b), 'image/png'); });
+$('btnCsv').addEventListener('click', () => { const g = viewGrid().g || grid; download(`map_${stamp()}.csv`, new Blob([gridCsv(g)], { type: 'text/csv' })); });
+$('btnJson').addEventListener('click', () => download(`session_${stamp()}.json`, new Blob([JSON.stringify({ version: VERSION, settings: S, grid: gridToJson(grid), A: gridToJson(slotA), B: gridToJson(slotB), points, accuracy: accLog, blind: blind.results }, null, 1)], { type: 'application/json' })));
+$('detSel').addEventListener('change', (e) => { S.detector = e.target.value; S.floorDb = null; S.floorMv = null; saveSettings(); refreshSettings(); refreshPrep(); renderCal(); });
+$('nVt').addEventListener('change', (e) => { S.nVt = +e.target.value || 26.6; saveSettings(); });
+$('adSlope').addEventListener('change', (e) => { S.adSlope = +e.target.value || 25; saveSettings(); });
+$('adInt').addEventListener('change', (e) => { S.adInt = +e.target.value; saveSettings(); });
+$('latency').addEventListener('change', (e) => { S.latency = clamp(+e.target.value || 0, 0, 500); saveSettings(); });
+$('matW').addEventListener('change', (e) => { S.matW = clamp(+e.target.value || 120, 20, 400); saveSettings(); updateH(); grid = newGrid(); });
+$('matH').addEventListener('change', (e) => { S.matH = clamp(+e.target.value || 90, 20, 400); saveSettings(); updateH(); grid = newGrid(); });
+$('coilPos').addEventListener('change', (e) => { const t = e.target; if (t.dataset.ci == null) return; S.coils[+t.dataset.ci][+t.dataset.k] = +t.value; saveSettings(); });
+$('connMode').addEventListener('change', (e) => { S.connMode = e.target.value; saveSettings(); });
+$('demo').addEventListener('change', (e) => setDemo(e.target.checked));
+$('btnReset').addEventListener('click', () => { const keepCorners = S.corners, keepMarker = S.marker; S = JSON.parse(JSON.stringify(DEFAULTS)); S.corners = keepCorners; S.marker = keepMarker; saveSettings(); refreshSettings(); refreshPrep(); updateH(); setDemo(false); toast('설정을 기본값으로 되돌렸습니다 (모서리·마커는 유지).'); });
+window.addEventListener('resize', () => { cellCacheDirty = true; });
+
+// 시험 자동화를 위한 최소한의 창구 (화면에는 영향 없음)
+window.__emi = { get S() { return S; }, get grid() { return grid; }, findPeak, cellVal, onLine, probe, Conn, diodeDbm, dbmToDiodeDv, setDemo, sendCoil, i2c, get dpr() { return dpr; }, get live() { return live; }, get scanning() { return scanning; }, set scanning(v) { scanning = v; setScanUi(); } };
+
+// 시작
+updateH(); refreshSettings(); refreshPrep(); setConnUi(); setScanUi(); renderCal();
+$('verInfo').textContent = `앱 v${VERSION}`;
+if (S.demo) setDemo(true);
+schedule();
+</script>
+</body>
+</html>
